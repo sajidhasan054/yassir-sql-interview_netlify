@@ -1,3 +1,5 @@
+// Yassir Technical Assessment Platform Configuration File
+
 window.YASSIR_CONFIG = {
     // Platform Identity
     ORGANIZATION_NAME: "Yassir Data Engineering & Analytics",
