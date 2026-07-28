@@ -304,28 +304,7 @@
             }
         ];
 
-        const DEFAULT_SUBMISSIONS = [
-            {
-                id: 'sub-1700000000000',
-                candidateName: 'Sarah Mansouri',
-                candidateEmail: 'sarah@example.com',
-                examId: 'exam-001',
-                examTitle: 'Yassir Product Data Analyst Technical Screen',
-                mcqAnswers: { q1: 'A', q2: 'B', q3: 'A', q4: 'B', q5: 'A' },
-                textAnswers: {
-                    q7: {
-                        flawsText: 'Missing PARTITION BY in ROW_NUMBER() and order_status filter is in outer query instead of CTE.',
-                        sqlText: `WITH RankedOrders AS (\n  SELECT u.user_id, o.order_value, ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY o.order_timestamp ASC) AS order_sequence\n  FROM users u JOIN orders o ON u.user_id = o.user_id\n  WHERE u.city = 'Algiers' AND o.order_status = 'completed'\n)\nSELECT user_id, order_value FROM RankedOrders WHERE order_sequence = 2;`
-                    }
-                },
-                mcqScore: 5,
-                mcqTotal: 5,
-                percentage: 100,
-                timeTakenSeconds: 482,
-                tabSwitches: 0,
-                submittedAt: '2026-07-28 14:30:00'
-            }
-        ];
+        const DEFAULT_SUBMISSIONS = [];
 
         function App() {
             const [route, setRoute] = useState('candidate_entry');
@@ -407,31 +386,27 @@
                     if (res.ok) {
                         const remoteData = await res.json();
                         
-                        if (remoteData.questions && Array.isArray(remoteData.questions) && remoteData.questions.length > 0) {
-                            setQuestionBank(prev => {
-                                const mergedMap = new Map();
-                                prev.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
-                                remoteData.questions.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
-                                return Array.from(mergedMap.values());
-                            });
+                        // Merge Questions
+                        if (remoteData.questions && Array.isArray(remoteData.questions)) {
+                            const mergedMap = new Map();
+                            DEFAULT_QUESTIONS.forEach(q => mergedMap.set(q.id, q));
+                            remoteData.questions.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
+                            setQuestionBank(Array.from(mergedMap.values()));
                         }
 
-                        if (remoteData.exams && Array.isArray(remoteData.exams) && remoteData.exams.length > 0) {
-                            setExams(prev => {
-                                const mergedMap = new Map();
-                                prev.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
-                                remoteData.exams.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
-                                return Array.from(mergedMap.values());
-                            });
+                        // Merge Exams
+                        if (remoteData.exams && Array.isArray(remoteData.exams)) {
+                            const mergedMap = new Map();
+                            DEFAULT_EXAMS.forEach(e => mergedMap.set(e.id, e));
+                            remoteData.exams.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
+                            setExams(Array.from(mergedMap.values()));
                         }
 
-                        if (remoteData.submissions && Array.isArray(remoteData.submissions) && remoteData.submissions.length > 0) {
-                            setSubmissions(prev => {
-                                const mergedMap = new Map();
-                                prev.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
-                                remoteData.submissions.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
-                                return Array.from(mergedMap.values());
-                            });
+                        // Merge Submissions
+                        if (remoteData.submissions && Array.isArray(remoteData.submissions)) {
+                            const mergedMap = new Map();
+                            remoteData.submissions.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
+                            setSubmissions(Array.from(mergedMap.values()));
                         }
 
                         if (showNotification) {
@@ -445,12 +420,12 @@
                 }
             }, []);
 
-            // Initial Sync + Background Auto-Polling Interval (12s)
+            // Initial Sync + Background Auto-Polling Interval (8s)
             useEffect(() => {
                 syncRemoteData(false);
                 const pollInterval = setInterval(() => {
                     syncRemoteData(false);
-                }, 12000);
+                }, 8000);
                 return () => clearInterval(pollInterval);
             }, [syncRemoteData]);
 
@@ -602,8 +577,7 @@
                     setCandidateSlide((activeQuestions?.length || 0) + 1);
                     showToast("Assessment submitted & synced to Google Sheets!");
                     
-                    // Push-then-pull refresh
-                    setTimeout(() => syncRemoteData(false), 1500);
+                    setTimeout(() => syncRemoteData(false), 1200);
                 } catch (err) {
                     console.error("Submission error:", err);
                     showToast("Failed to submit exam. Please try again.", "error");
@@ -649,6 +623,9 @@
                     correctHash: hashedValue
                 };
 
+                const actionType = editingQuestionId ? "update_question" : "add_question";
+                await sendToGoogleSheets(actionType, qToSave);
+
                 if (editingQuestionId) {
                     setQuestionBank(prev => prev.map(q => q.id === editingQuestionId ? qToSave : q));
                     showToast("Question updated!");
@@ -657,19 +634,20 @@
                     showToast("New question added!");
                 }
 
-                await sendToGoogleSheets("add_question", qToSave);
                 setIsQuestionModalOpen(false);
-                setTimeout(() => syncRemoteData(false), 1500);
+                setTimeout(() => syncRemoteData(false), 1200);
             };
 
-            const handleDeleteQuestion = (id) => {
+            const handleDeleteQuestion = async (id) => {
                 setConfirmModal({
                     title: "Delete Question",
                     message: "Are you sure you want to remove this question from the bank?",
-                    onConfirm: () => {
+                    onConfirm: async () => {
+                        await sendToGoogleSheets("delete_question", { id });
                         setQuestionBank(prev => prev.filter(q => q.id !== id));
-                        showToast("Question deleted.");
+                        showToast("Question deleted from Google Sheets.");
                         setConfirmModal(null);
+                        setTimeout(() => syncRemoteData(false), 1200);
                     }
                 });
             };
@@ -719,19 +697,22 @@
                     showToast("New exam paper created!");
                 }
 
-                await sendToGoogleSheets("add_exam", exToSave);
+                const actionType = editingExamId ? "update_exam" : "add_exam";
+                await sendToGoogleSheets(actionType, exToSave);
                 setIsExamModalOpen(false);
-                setTimeout(() => syncRemoteData(false), 1500);
+                setTimeout(() => syncRemoteData(false), 1200);
             };
 
-            const handleDeleteExam = (id) => {
+            const handleDeleteExam = async (id) => {
                 setConfirmModal({
                     title: "Delete Exam Template",
                     message: "Are you sure you want to delete this exam paper?",
-                    onConfirm: () => {
+                    onConfirm: async () => {
+                        await sendToGoogleSheets("delete_exam", { id });
                         setExams(prev => prev.filter(ex => ex.id !== id));
-                        showToast("Exam paper deleted.");
+                        showToast("Exam paper deleted from Google Sheets.");
                         setConfirmModal(null);
+                        setTimeout(() => syncRemoteData(false), 1200);
                     }
                 });
             };
