@@ -72,6 +72,22 @@
             return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
+        // Helper to send real-time POST actions to Google Sheets API
+        async function sendToGoogleSheets(action, data) {
+            const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
+            if (!sheetsUrl) return;
+            try {
+                await fetch(sheetsUrl, {
+                    method: "POST",
+                    mode: "no-cors",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ action, data })
+                });
+            } catch (err) {
+                console.warn("Google Sheets POST error:", err);
+            }
+        }
+
         const DEFAULT_SCHEMAS = {
             olist: {
                 id: 'olist',
@@ -377,9 +393,31 @@
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
 
-            // Automatically fetch committed exams.json and questions.json from Netlify server on startup
+            // Automatically fetch real-time database content from Google Sheets API on startup
             useEffect(() => {
                 async function syncRemoteData() {
+                    const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
+                    if (sheetsUrl) {
+                        try {
+                            const res = await fetch(sheetsUrl);
+                            if (res.ok) {
+                                const remoteData = await res.json();
+                                if (remoteData.questions && remoteData.questions.length > 0) {
+                                    setQuestionBank(remoteData.questions);
+                                }
+                                if (remoteData.exams && remoteData.exams.length > 0) {
+                                    setExams(remoteData.exams);
+                                }
+                                if (remoteData.submissions && remoteData.submissions.length > 0) {
+                                    setSubmissions(remoteData.submissions);
+                                }
+                                showToast("Synced live data from Google Sheets!");
+                            }
+                        } catch (err) {
+                            console.warn("Google Sheets fetch error, using local/server fallback:", err);
+                        }
+                    }
+
                     try {
                         const examsRes = await fetch('/exams.json');
                         if (examsRes.ok) {
@@ -534,6 +572,9 @@
                     submittedAt: formattedDate
                 };
 
+                // Real-time Save to Google Sheets
+                await sendToGoogleSheets("add_submission", submissionData);
+
                 // Native Netlify Form POST Request
                 if (window.YASSIR_CONFIG?.ENABLE_NETLIFY_FORMS !== false) {
                     try {
@@ -555,7 +596,6 @@
                             headers: { "Content-Type": "application/x-www-form-urlencoded" },
                             body: formData.toString()
                         });
-                        showToast("Submission logged natively in Netlify Forms!");
                     } catch (err) {
                         console.warn("Netlify form post error:", err);
                     }
@@ -563,7 +603,7 @@
 
                 setSubmissions(prev => [submissionData, ...prev]);
                 setCandidateSlide((activeQuestions?.length || 0) + 1);
-                showToast("Assessment submitted successfully!");
+                showToast("Assessment submitted & synced to Google Sheets!");
             };
 
             const handleOpenQuestionModal = (question = null) => {
@@ -605,11 +645,15 @@
 
                 if (editingQuestionId) {
                     setQuestionBank(prev => prev.map(q => q.id === editingQuestionId ? qToSave : q));
-                    showToast("Question updated successfully!");
+                    showToast("Question updated!");
                 } else {
                     setQuestionBank(prev => [qToSave, ...prev]);
-                    showToast("New question added to bank!");
+                    showToast("New question added!");
                 }
+
+                // Sync Question to Google Sheets database
+                await sendToGoogleSheets("add_question", qToSave);
+
                 setIsQuestionModalOpen(false);
             };
 
@@ -643,30 +687,31 @@
                         passScore: 70,
                         timeLimitMinutes: 20,
                         questionIds: questionBank.slice(0, 5).map(q => q.id)
-                    });
-                }
-                setIsExamModalOpen(true);
-            };
-
-            const handleSaveExam = (e) => {
+            const handleSaveExam = async (e) => {
                 e.preventDefault();
                 if (examForm.questionIds.length === 0) {
                     showToast("Select at least 1 question for the exam template.", "error");
                     return;
                 }
 
+                let exToSave;
                 if (editingExamId) {
-                    setExams(prev => prev.map(ex => ex.id === editingExamId ? { ...examForm, id: editingExamId, createdAt: ex.createdAt } : ex));
+                    exToSave = { ...examForm, id: editingExamId, createdAt: new Date().toISOString() };
+                    setExams(prev => prev.map(ex => ex.id === editingExamId ? exToSave : ex));
                     showToast("Exam template updated!");
                 } else {
-                    const newEx = {
+                    exToSave = {
                         ...examForm,
                         id: `exam-${Date.now()}`,
                         createdAt: new Date().toISOString()
                     };
-                    setExams(prev => [newEx, ...prev]);
+                    setExams(prev => [exToSave, ...prev]);
                     showToast("New exam paper created!");
                 }
+
+                // Sync Exam to Google Sheets database
+                await sendToGoogleSheets("add_exam", exToSave);
+
                 setIsExamModalOpen(false);
             };
 
