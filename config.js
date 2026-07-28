@@ -1,5 +1,3 @@
-// Yassir Technical Assessment Platform Configuration File
-
 window.YASSIR_CONFIG = {
     // Platform Identity
     ORGANIZATION_NAME: "Yassir Data Engineering & Analytics",
@@ -12,5 +10,8 @@ window.YASSIR_CONFIG = {
     ADMIN_PASS: "yassir2026!",
 
     // Netlify Native Form Engine
-    ENABLE_NETLIFY_FORMS: true
+    ENABLE_NETLIFY_FORMS: true,
+
+    // Deployed Google Apps Script Endpoint for Real-time Database Sync
+    GOOGLE_SHEETS_URL: "https://script.google.com/macros/s/AKfycbzIs6fJB1hTl8jE8r5t5YbnDa3qMbL471Y3o-ssq1DNdT07GKI-jgz5eBF36pXBCw7i/exec"
 };
