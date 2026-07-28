@@ -374,6 +374,7 @@
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
 
+            // Synchronize remote Google Sheets data
             const syncRemoteData = useCallback(async (showNotification = false) => {
                 const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
                 if (!sheetsUrl) return;
@@ -420,14 +421,38 @@
                 }
             }, []);
 
-            // Initial Sync + Background Auto-Polling Interval (8s)
+            // Smart Adaptive Polling Engine
             useEffect(() => {
+                // Initial sync on mount
                 syncRemoteData(false);
+
+                // Polling interval function
                 const pollInterval = setInterval(() => {
+                    // 1. Skip polling if tab is hidden / minimized
+                    if (document.hidden) return;
+
+                    // 2. Skip polling if candidate is actively taking an exam to save bandwidth
+                    if (route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= (activeQuestions?.length || 0)) {
+                        return;
+                    }
+
+                    // Perform background sync
                     syncRemoteData(false);
-                }, 8000);
-                return () => clearInterval(pollInterval);
-            }, [syncRemoteData]);
+                }, 20000); // 20-second efficient polling interval
+
+                // Trigger immediate sync when returning to tab
+                const handleTabFocus = () => {
+                    if (!document.hidden) {
+                        syncRemoteData(false);
+                    }
+                };
+                document.addEventListener('visibilitychange', handleTabFocus);
+
+                return () => {
+                    clearInterval(pollInterval);
+                    document.removeEventListener('visibilitychange', handleTabFocus);
+                };
+            }, [syncRemoteData, route, candidateSlide, activeQuestions?.length]);
 
             // LocalStorage Persistence
             useEffect(() => {
@@ -478,6 +503,7 @@
                     setAdminAuth({ ...adminAuth, isAuthenticated: true, error: '' });
                     setRoute('page_results');
                     showToast("Admin authenticated successfully!");
+                    syncRemoteData(false);
                 } else {
                     setAdminAuth({ ...adminAuth, error: "Invalid Admin ID or Password." });
                 }
