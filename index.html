@@ -377,6 +377,52 @@
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
 
+            // Automatically fetch committed exams.json and questions.json from Netlify server on startup
+            useEffect(() => {
+                async function syncRemoteData() {
+                    try {
+                        const examsRes = await fetch('/exams.json');
+                        if (examsRes.ok) {
+                            const examsData = await examsRes.json();
+                            const remoteExams = examsData?.exams || (Array.isArray(examsData) ? examsData : null);
+                            if (remoteExams && Array.isArray(remoteExams)) {
+                                setExams(prev => {
+                                    const merged = [...remoteExams];
+                                    prev.forEach(p => {
+                                        if (!merged.find(m => m.id === p.id || m.accessCode.trim().toLowerCase() === p.accessCode.trim().toLowerCase())) {
+                                            merged.push(p);
+                                        }
+                                    });
+                                    return merged;
+                                });
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("No server exams.json file found, using browser storage fallback.");
+                    }
+
+                    try {
+                        const qRes = await fetch('/questions.json');
+                        if (qRes.ok) {
+                            const qData = await qRes.json();
+                            const remoteQs = qData?.questions || (Array.isArray(qData) ? qData : null);
+                            if (remoteQs && Array.isArray(remoteQs)) {
+                                setQuestionBank(prev => {
+                                    const merged = [...remoteQs];
+                                    prev.forEach(p => {
+                                        if (!merged.find(m => m.id === p.id)) merged.push(p);
+                                    });
+                                    return merged;
+                                });
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("No server questions.json file found, using browser storage fallback.");
+                    }
+                }
+                syncRemoteData();
+            }, []);
+
             // Persist to localStorage on change
             useEffect(() => {
                 localStorage.setItem('yassir_questions', JSON.stringify(questionBank));
@@ -957,7 +1003,7 @@
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
                                     <div>
                                         <h2 className="text-lg font-bold text-white">Question Bank ({questionBank.length})</h2>
-                                        <p className="text-xs text-slate-400">Manage questions and cryptographic SHA-256 keys.</p>
+                                        <p className="text-xs text-slate-400">Manage questions and SHA-256 keys. Click <strong>Export `questions.json`</strong> & commit to GitHub to sync new questions to all candidate devices.</p>
                                     </div>
                                     <div className="flex space-x-2">
                                         <button onClick={() => exportJSONFile({ schemas, questions: questionBank }, 'questions.json')} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700"><i className="fa-solid fa-download mr-1"></i> Export `questions.json`</button>
@@ -992,7 +1038,7 @@
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
                                     <div>
                                         <h2 className="text-lg font-bold text-white">Exams Manager ({exams.length})</h2>
-                                        <p className="text-xs text-slate-400">Configure exam templates and candidate access codes.</p>
+                                        <p className="text-xs text-slate-400">Configure exam templates. Click <strong>Export `exams.json`</strong> & commit to GitHub to sync codes to all candidate devices.</p>
                                     </div>
                                     <div className="flex space-x-2">
                                         <button onClick={() => exportJSONFile({ exams }, 'exams.json')} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700"><i className="fa-solid fa-download mr-1"></i> Export `exams.json`</button>
