@@ -370,6 +370,7 @@
             const [startTime, setStartTime] = useState(null);
             const [elapsedSeconds, setElapsedSeconds] = useState(0);
             const [tabSwitchCount, setTabSwitchCount] = useState(0);
+            const [isSubmitting, setIsSubmitting] = useState(false);
 
             // Modal & Form State
             const [selectedSubmission, setSelectedSubmission] = useState(null);
@@ -530,79 +531,89 @@
             };
 
             const handleSubmitExam = async () => {
-                let score = 0;
-                let mcqTotal = 0;
+                if (isSubmitting) return;
+                setIsSubmitting(true);
 
-                for (const q of (activeQuestions || [])) {
-                    if (q.type === 'mcq') {
-                        mcqTotal += 1;
-                        const chosenOpt = candidateAnswers[q.id];
-                        if (chosenOpt) {
-                            if (q.correct && chosenOpt === q.correct) {
-                                score += 1;
-                            } else {
-                                const expectedHash = q.correctHash || (q.correct ? await hashOption(q.id, q.correct) : null);
-                                const chosenHash = await hashOption(q.id, chosenOpt);
-                                if (expectedHash && chosenHash === expectedHash) {
+                try {
+                    let score = 0;
+                    let mcqTotal = 0;
+
+                    for (const q of (activeQuestions || [])) {
+                        if (q.type === 'mcq') {
+                            mcqTotal += 1;
+                            const chosenOpt = candidateAnswers[q.id];
+                            if (chosenOpt) {
+                                if (q.correct && chosenOpt === q.correct) {
                                     score += 1;
+                                } else {
+                                    const expectedHash = q.correctHash || (q.correct ? await hashOption(q.id, q.correct) : null);
+                                    const chosenHash = await hashOption(q.id, chosenOpt);
+                                    if (expectedHash && chosenHash === expectedHash) {
+                                        score += 1;
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                const now = new Date();
-                const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${now.toLocaleTimeString()}`;
+                    const now = new Date();
+                    const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${now.toLocaleTimeString()}`;
 
-                const submissionData = {
-                    id: `sub-${Date.now()}`,
-                    candidateName: candidateInfo.name,
-                    candidateEmail: candidateInfo.email,
-                    examId: activeExamId,
-                    examTitle: activeExam?.title || 'Technical Screen',
-                    examCode: activeExam?.accessCode || candidateInfo.examCode,
-                    mcqAnswers: candidateAnswers,
-                    textAnswers: candidateTextAnswers,
-                    mcqScore: score,
-                    mcqTotal: mcqTotal,
-                    percentage: mcqTotal > 0 ? Math.round((score / mcqTotal) * 100) : 0,
-                    timeTakenSeconds: elapsedSeconds,
-                    tabSwitches: tabSwitchCount,
-                    submittedAt: formattedDate
-                };
+                    const submissionData = {
+                        id: `sub-${Date.now()}`,
+                        candidateName: candidateInfo.name,
+                        candidateEmail: candidateInfo.email,
+                        examId: activeExamId,
+                        examTitle: activeExam?.title || 'Technical Screen',
+                        examCode: activeExam?.accessCode || candidateInfo.examCode,
+                        mcqAnswers: candidateAnswers,
+                        textAnswers: candidateTextAnswers,
+                        mcqScore: score,
+                        mcqTotal: mcqTotal,
+                        percentage: mcqTotal > 0 ? Math.round((score / mcqTotal) * 100) : 0,
+                        timeTakenSeconds: elapsedSeconds,
+                        tabSwitches: tabSwitchCount,
+                        submittedAt: formattedDate
+                    };
 
-                // Real-time Save to Google Sheets
-                await sendToGoogleSheets("add_submission", submissionData);
+                    // Real-time Save to Google Sheets
+                    await sendToGoogleSheets("add_submission", submissionData);
 
-                // Native Netlify Form POST Request
-                if (window.YASSIR_CONFIG?.ENABLE_NETLIFY_FORMS !== false) {
-                    try {
-                        const formData = new URLSearchParams();
-                        formData.append("form-name", "candidate-submissions");
-                        formData.append("candidateName", submissionData.candidateName);
-                        formData.append("candidateEmail", submissionData.candidateEmail);
-                        formData.append("examTitle", submissionData.examTitle);
-                        formData.append("examCode", submissionData.examCode);
-                        formData.append("mcqScore", `${submissionData.mcqScore} / ${submissionData.mcqTotal}`);
-                        formData.append("percentage", `${submissionData.percentage}%`);
-                        formData.append("timeTakenSeconds", submissionData.timeTakenSeconds);
-                        formData.append("tabSwitches", submissionData.tabSwitches);
-                        formData.append("submittedAt", submissionData.submittedAt);
-                        formData.append("textAnswers", JSON.stringify(submissionData.textAnswers));
+                    // Native Netlify Form POST Request
+                    if (window.YASSIR_CONFIG?.ENABLE_NETLIFY_FORMS !== false) {
+                        try {
+                            const formData = new URLSearchParams();
+                            formData.append("form-name", "candidate-submissions");
+                            formData.append("candidateName", submissionData.candidateName);
+                            formData.append("candidateEmail", submissionData.candidateEmail);
+                            formData.append("examTitle", submissionData.examTitle);
+                            formData.append("examCode", submissionData.examCode);
+                            formData.append("mcqScore", `${submissionData.mcqScore} / ${submissionData.mcqTotal}`);
+                            formData.append("percentage", `${submissionData.percentage}%`);
+                            formData.append("timeTakenSeconds", submissionData.timeTakenSeconds);
+                            formData.append("tabSwitches", submissionData.tabSwitches);
+                            formData.append("submittedAt", submissionData.submittedAt);
+                            formData.append("textAnswers", JSON.stringify(submissionData.textAnswers));
 
-                        await fetch("/", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                            body: formData.toString()
-                        });
-                    } catch (err) {
-                        console.warn("Netlify form post error:", err);
+                            await fetch("/", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                body: formData.toString()
+                            });
+                        } catch (err) {
+                            console.warn("Netlify form post error:", err);
+                        }
                     }
-                }
 
-                setSubmissions(prev => [submissionData, ...prev]);
-                setCandidateSlide((activeQuestions?.length || 0) + 1);
-                showToast("Assessment submitted & synced to Google Sheets!");
+                    setSubmissions(prev => [submissionData, ...prev]);
+                    setCandidateSlide((activeQuestions?.length || 0) + 1);
+                    showToast("Assessment submitted & synced to Google Sheets!");
+                } catch (err) {
+                    console.error("Submission error:", err);
+                    showToast("Failed to submit exam. Please try again.", "error");
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
 
             const handleOpenQuestionModal = (question = null) => {
@@ -1012,11 +1023,26 @@
 
                                 {candidateSlide >= 1 && candidateSlide <= totalQs && (
                                     <div className="flex justify-between items-center bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
-                                        <button onClick={() => setCandidateSlide(prev => Math.max(1, prev - 1))} disabled={candidateSlide === 1} className="px-4 py-2 bg-slate-800 disabled:opacity-30 text-xs font-bold rounded-lg text-slate-300">Previous</button>
+                                        <button onClick={() => setCandidateSlide(prev => Math.max(1, prev - 1))} disabled={candidateSlide === 1 || isSubmitting} className="px-4 py-2 bg-slate-800 disabled:opacity-30 text-xs font-bold rounded-lg text-slate-300">Previous</button>
                                         {candidateSlide < totalQs ? (
                                             <button onClick={() => setCandidateSlide(prev => prev + 1)} className="px-5 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold rounded-lg">Next Question</button>
                                         ) : (
-                                            <button onClick={handleSubmitExam} className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg">Submit Exam</button>
+                                            <button
+                                                onClick={handleSubmitExam}
+                                                disabled={isSubmitting}
+                                                className={`px-6 py-2 text-xs font-bold rounded-lg transition-all ${
+                                                    isSubmitting ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-75' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                                                }`}
+                                            >
+                                                {isSubmitting ? (
+                                                    <span className="flex items-center space-x-1.5">
+                                                        <i className="fa-solid fa-spinner animate-spin"></i>
+                                                        <span>Submitting...</span>
+                                                    </span>
+                                                ) : (
+                                                    'Submit Exam'
+                                                )}
+                                            </button>
                                         )}
                                     </div>
                                 )}
