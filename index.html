@@ -346,7 +346,7 @@
                 name: 'Interviewer Admin'
             });
 
-            // Data State Management (Loaded from local storage or defaults)
+            // Data State Management
             const [schemas] = useState(DEFAULT_SCHEMAS);
             const [questionBank, setQuestionBank] = useState(() => {
                 const saved = localStorage.getItem('yassir_questions');
@@ -393,7 +393,6 @@
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
 
-            // Automatically fetch real-time database content from Google Sheets API on startup
             useEffect(() => {
                 async function syncRemoteData() {
                     const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
@@ -414,7 +413,7 @@
                                 showToast("Synced live data from Google Sheets!");
                             }
                         } catch (err) {
-                            console.warn("Google Sheets fetch error, using local/server fallback:", err);
+                            console.warn("Google Sheets fetch error:", err);
                         }
                     }
 
@@ -436,7 +435,7 @@
                             }
                         }
                     } catch (err) {
-                        console.warn("No server exams.json file found, using browser storage fallback.");
+                        console.warn("No server exams.json fallback.");
                     }
 
                     try {
@@ -455,7 +454,7 @@
                             }
                         }
                     } catch (err) {
-                        console.warn("No server questions.json file found, using browser storage fallback.");
+                        console.warn("No server questions.json fallback.");
                     }
                 }
                 syncRemoteData();
@@ -651,9 +650,7 @@
                     showToast("New question added!");
                 }
 
-                // Sync Question to Google Sheets database
                 await sendToGoogleSheets("add_question", qToSave);
-
                 setIsQuestionModalOpen(false);
             };
 
@@ -687,6 +684,11 @@
                         passScore: 70,
                         timeLimitMinutes: 20,
                         questionIds: questionBank.slice(0, 5).map(q => q.id)
+                    });
+                }
+                setIsExamModalOpen(true);
+            };
+
             const handleSaveExam = async (e) => {
                 e.preventDefault();
                 if (examForm.questionIds.length === 0) {
@@ -709,9 +711,7 @@
                     showToast("New exam paper created!");
                 }
 
-                // Sync Exam to Google Sheets database
                 await sendToGoogleSheets("add_exam", exToSave);
-
                 setIsExamModalOpen(false);
             };
 
