@@ -1,4 +1,3 @@
-/* STREAMING_CHUNK:Setting up build options and client-side single page redirects... */
 [build]
 publish = "."
 command = ""
