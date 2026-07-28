@@ -60,7 +60,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
 
         // SHA-256 Answer Hashing Helper
         async function hashOption(qId, optId) {
@@ -331,6 +331,7 @@
             const [route, setRoute] = useState('candidate_entry');
             const [toast, setToast] = useState(null);
             const [confirmModal, setConfirmModal] = useState(null);
+            const [isSyncing, setIsSyncing] = useState(false);
 
             const showToast = (msg, type = 'success') => {
                 setToast({ msg, type });
@@ -394,99 +395,66 @@
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
 
-            useEffect(() => {
-                async function syncRemoteData() {
-                    const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
-                    if (sheetsUrl) {
-                        try {
-                            const res = await fetch(sheetsUrl);
-                            if (res.ok) {
-                                const remoteData = await res.json();
-                                
-                                if (remoteData.questions && Array.isArray(remoteData.questions) && remoteData.questions.length > 0) {
-                                    setQuestionBank(prev => {
-                                        const mergedMap = new Map();
-                                        prev.forEach(q => mergedMap.set(q.id, q));
-                                        remoteData.questions.forEach(q => {
-                                            if (q && q.id) mergedMap.set(q.id, q);
-                                        });
-                                        return Array.from(mergedMap.values());
-                                    });
-                                }
+            const syncRemoteData = useCallback(async (showNotification = false) => {
+                const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
+                if (!sheetsUrl) return;
+                
+                setIsSyncing(true);
+                try {
+                    // Cache-busting URL with live timestamp parameter
+                    const cacheBustingUrl = `${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+                    const res = await fetch(cacheBustingUrl);
+                    if (res.ok) {
+                        const remoteData = await res.json();
+                        
+                        if (remoteData.questions && Array.isArray(remoteData.questions) && remoteData.questions.length > 0) {
+                            setQuestionBank(prev => {
+                                const mergedMap = new Map();
+                                prev.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
+                                remoteData.questions.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
+                                return Array.from(mergedMap.values());
+                            });
+                        }
 
-                                if (remoteData.exams && Array.isArray(remoteData.exams) && remoteData.exams.length > 0) {
-                                    setExams(prev => {
-                                        const mergedMap = new Map();
-                                        prev.forEach(e => mergedMap.set(e.id, e));
-                                        remoteData.exams.forEach(e => {
-                                            if (e && e.id) mergedMap.set(e.id, e);
-                                        });
-                                        return Array.from(mergedMap.values());
-                                    });
-                                }
+                        if (remoteData.exams && Array.isArray(remoteData.exams) && remoteData.exams.length > 0) {
+                            setExams(prev => {
+                                const mergedMap = new Map();
+                                prev.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
+                                remoteData.exams.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
+                                return Array.from(mergedMap.values());
+                            });
+                        }
 
-                                if (remoteData.submissions && Array.isArray(remoteData.submissions) && remoteData.submissions.length > 0) {
-                                    setSubmissions(prev => {
-                                        const mergedMap = new Map();
-                                        prev.forEach(s => mergedMap.set(s.id, s));
-                                        remoteData.submissions.forEach(s => {
-                                            if (s && s.id) mergedMap.set(s.id, s);
-                                        });
-                                        return Array.from(mergedMap.values());
-                                    });
-                                }
+                        if (remoteData.submissions && Array.isArray(remoteData.submissions) && remoteData.submissions.length > 0) {
+                            setSubmissions(prev => {
+                                const mergedMap = new Map();
+                                prev.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
+                                remoteData.submissions.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
+                                return Array.from(mergedMap.values());
+                            });
+                        }
 
-                                showToast("Synced live data from Google Sheets!");
-                            }
-                        } catch (err) {
-                            console.warn("Google Sheets fetch error:", err);
+                        if (showNotification) {
+                            showToast("Synced live data from Google Sheets!");
                         }
                     }
-
-                    try {
-                        const examsRes = await fetch('/exams.json');
-                        if (examsRes.ok) {
-                            const examsData = await examsRes.json();
-                            const remoteExams = examsData?.exams || (Array.isArray(examsData) ? examsData : null);
-                            if (remoteExams && Array.isArray(remoteExams)) {
-                                setExams(prev => {
-                                    const mergedMap = new Map();
-                                    prev.forEach(e => mergedMap.set(e.id, e));
-                                    remoteExams.forEach(e => {
-                                        if (e && e.id) mergedMap.set(e.id, e);
-                                    });
-                                    return Array.from(mergedMap.values());
-                                });
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("No server exams.json fallback.");
-                    }
-
-                    try {
-                        const qRes = await fetch('/questions.json');
-                        if (qRes.ok) {
-                            const qData = await qRes.json();
-                            const remoteQs = qData?.questions || (Array.isArray(qData) ? qData : null);
-                            if (remoteQs && Array.isArray(remoteQs)) {
-                                setQuestionBank(prev => {
-                                    const mergedMap = new Map();
-                                    prev.forEach(q => mergedMap.set(q.id, q));
-                                    remoteQs.forEach(q => {
-                                        if (q && q.id) mergedMap.set(q.id, q);
-                                    });
-                                    return Array.from(mergedMap.values());
-                                });
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("No server questions.json fallback.");
-                    }
+                } catch (err) {
+                    console.warn("Google Sheets fetch error:", err);
+                } finally {
+                    setIsSyncing(false);
                 }
-                syncRemoteData();
             }, []);
 
-            // Persist to localStorage on change
+            // Initial Sync + Background Auto-Polling Interval (12s)
+            useEffect(() => {
+                syncRemoteData(false);
+                const pollInterval = setInterval(() => {
+                    syncRemoteData(false);
+                }, 12000);
+                return () => clearInterval(pollInterval);
+            }, [syncRemoteData]);
+
+            // LocalStorage Persistence
             useEffect(() => {
                 localStorage.setItem('yassir_questions', JSON.stringify(questionBank));
             }, [questionBank]);
@@ -633,6 +601,9 @@
                     setSubmissions(prev => [submissionData, ...prev]);
                     setCandidateSlide((activeQuestions?.length || 0) + 1);
                     showToast("Assessment submitted & synced to Google Sheets!");
+                    
+                    // Push-then-pull refresh
+                    setTimeout(() => syncRemoteData(false), 1500);
                 } catch (err) {
                     console.error("Submission error:", err);
                     showToast("Failed to submit exam. Please try again.", "error");
@@ -688,6 +659,7 @@
 
                 await sendToGoogleSheets("add_question", qToSave);
                 setIsQuestionModalOpen(false);
+                setTimeout(() => syncRemoteData(false), 1500);
             };
 
             const handleDeleteQuestion = (id) => {
@@ -749,6 +721,7 @@
 
                 await sendToGoogleSheets("add_exam", exToSave);
                 setIsExamModalOpen(false);
+                setTimeout(() => syncRemoteData(false), 1500);
             };
 
             const handleDeleteExam = (id) => {
@@ -876,9 +849,19 @@
                             </div>
                             <div className="flex flex-col">
                                 <span className="text-white text-sm font-bold">Data Analytics Technical Assessment</span>
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                    Google Sheets Live Database Engine Active
-                                </span>
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                        Google Sheets Live Database Engine
+                                    </span>
+                                    <button 
+                                        onClick={() => syncRemoteData(true)} 
+                                        disabled={isSyncing} 
+                                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-0.5 rounded border border-slate-700 flex items-center space-x-1"
+                                    >
+                                        <i className={`fa-solid fa-rotate ${isSyncing ? 'animate-spin' : ''}`}></i>
+                                        <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
