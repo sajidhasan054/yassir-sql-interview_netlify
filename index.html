@@ -72,19 +72,28 @@
             return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        // Helper to send real-time POST actions to Google Sheets API
+        // Firewall-Proof Helper to send POST actions to Google Sheets API with 5s timeout
         async function sendToGoogleSheets(action, data) {
             const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
-            if (!sheetsUrl) return;
+            if (!sheetsUrl) return false;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout for strict corporate firewalls
+
             try {
                 await fetch(sheetsUrl, {
                     method: "POST",
                     mode: "no-cors",
                     headers: { "Content-Type": "text/plain;charset=utf-8" },
-                    body: JSON.stringify({ action, data })
+                    body: JSON.stringify({ action, data }),
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
+                return true;
             } catch (err) {
-                console.warn("Google Sheets POST error:", err);
+                clearTimeout(timeoutId);
+                console.warn("Google Sheets POST blocked or timed out by firewall:", err);
+                return false;
             }
         }
 
@@ -404,6 +413,7 @@
             const [toast, setToast] = useState(null);
             const [confirmModal, setConfirmModal] = useState(null);
             const [isSyncing, setIsSyncing] = useState(false);
+            const [isFirewallBlocked, setIsFirewallBlocked] = useState(false);
 
             const showToast = (msg, type = 'success') => {
                 setToast({ msg, type });
@@ -488,18 +498,24 @@
                 return activeExam.questionIds.map(qid => questionBank.find(q => q.id === qid)).filter(Boolean);
             }, [activeExam, questionBank]);
 
-            // Synchronize remote Google Sheets data
+            // Synchronize remote Google Sheets data with 5s timeout signal
             const syncRemoteData = useCallback(async (showNotification = false) => {
                 const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
                 if (!sheetsUrl) return;
                 
                 setIsSyncing(true);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second max fetch limit
+
                 try {
                     // Cache-busting URL with live timestamp parameter
                     const cacheBustingUrl = `${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
-                    const res = await fetch(cacheBustingUrl);
+                    const res = await fetch(cacheBustingUrl, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    
                     if (res.ok) {
                         const remoteData = await res.json();
+                        setIsFirewallBlocked(false);
                         
                         // Merge Questions
                         if (remoteData.questions && Array.isArray(remoteData.questions)) {
@@ -529,7 +545,9 @@
                         }
                     }
                 } catch (err) {
-                    console.warn("Google Sheets fetch error:", err);
+                    clearTimeout(timeoutId);
+                    setIsFirewallBlocked(true);
+                    console.warn("Google Sheets sync skipped due to firewall or network timeout:", err);
                 } finally {
                     setIsSyncing(false);
                 }
@@ -677,10 +695,8 @@
                         submittedAt: formattedDate
                     };
 
-                    // Real-time Save to Google Sheets
-                    await sendToGoogleSheets("add_submission", submissionData);
-
-                    // Native Netlify Form POST Request
+                    // Channel 1: Guaranteed Native Netlify Form POST Request (Same Domain = Firewall Proof!)
+                    let netlifySuccess = false;
                     if (window.YASSIR_CONFIG?.ENABLE_NETLIFY_FORMS !== false) {
                         try {
                             const formData = new URLSearchParams();
@@ -701,16 +717,20 @@
                                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                                 body: formData.toString()
                             });
+                            netlifySuccess = true;
                         } catch (err) {
                             console.warn("Netlify form post error:", err);
                         }
                     }
 
+                    // Channel 2: Direct Save to Google Sheets (Fallback or Parallel)
+                    await sendToGoogleSheets("add_submission", submissionData);
+
                     setSubmissions(prev => [submissionData, ...prev]);
                     setCandidateSlide((activeQuestions?.length || 0) + 1);
-                    showToast("Assessment submitted & synced to Google Sheets!");
+                    showToast("Assessment submitted successfully!");
                     
-                    setTimeout(() => syncRemoteData(false), 1200);
+                    setTimeout(() => syncRemoteData(false), 1500);
                 } catch (err) {
                     console.error("Submission error:", err);
                     showToast("Failed to submit exam. Please try again.", "error");
@@ -965,16 +985,23 @@
                                 <span className="text-white text-sm font-bold">Data Analytics Technical Assessment</span>
                                 <div className="flex items-center space-x-2">
                                     <span className="text-[10px] text-slate-400 font-mono">
-                                        Google Sheets Live Database Engine
+                                        Google Sheets Database
                                     </span>
-                                    <button 
-                                        onClick={() => syncRemoteData(true)} 
-                                        disabled={isSyncing} 
-                                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-0.5 rounded border border-slate-700 flex items-center space-x-1"
-                                    >
-                                        <i className={`fa-solid fa-rotate ${isSyncing ? 'animate-spin' : ''}`}></i>
-                                        <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
-                                    </button>
+                                    {isFirewallBlocked ? (
+                                        <span className="text-[10px] bg-amber-950/80 text-amber-400 border border-amber-800 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
+                                            <i className="fa-solid fa-shield-cat"></i>
+                                            <span>Firewall Fallback Active</span>
+                                        </span>
+                                    ) : (
+                                        <button 
+                                            onClick={() => syncRemoteData(true)} 
+                                            disabled={isSyncing} 
+                                            className="text-[10px] bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-0.5 rounded border border-slate-700 flex items-center space-x-1"
+                                        >
+                                            <i className={`fa-solid fa-rotate ${isSyncing ? 'animate-spin' : ''}`}></i>
+                                            <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1036,7 +1063,7 @@
                                     </div>
                                     <div>
                                         <label className="block text-slate-300 font-semibold mb-1">Exam Access Code</label>
-                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026 or FINTECH-2026" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
+                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026, FINTECH-2026 or DE-SQL-88" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
                                     </div>
                                     <button type="submit" className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold py-3 rounded-lg transition-all flex items-center justify-center space-x-2 shadow-lg shadow-sky-500/20">
                                         <span>Launch Assessment</span>
