@@ -280,6 +280,90 @@
                 ],
                 correct: 'B',
                 explanation: 'NTILE(10) splits rows into 10 equal buckets per city, where bucket 1 represents the top 10% percentile.'
+            },
+            {
+                id: 'q12',
+                schemaId: 'fintech',
+                title: 'Suspicious Transaction Audit (Self-Dealing)',
+                type: 'mcq',
+                difficulty: 'Easy',
+                question: 'As a financial auditor, you need to flag suspicious transactions where funds were sent and received by the exact same account. Which query achieves this?',
+                options: [
+                    { id: 'A', text: 'SELECT transaction_id FROM transactions WHERE sender_acc = receiver_acc;' },
+                    { id: 'B', text: 'SELECT transaction_id FROM transactions WHERE sender_acc != receiver_acc;' },
+                    { id: 'C', text: 'SELECT transaction_id FROM transactions GROUP BY sender_acc HAVING COUNT(receiver_acc) > 1;' },
+                    { id: 'D', text: 'SELECT transaction_id FROM transactions INNER JOIN accounts ON transactions.sender_acc = accounts.account_id WHERE accounts.balance < 0;' }
+                ],
+                correct: 'A',
+                explanation: 'An equality check between the sender_acc and receiver_acc columns identifies circular or self-dealing transactions during an audit.'
+            },
+            {
+                id: 'q13',
+                schemaId: 'fintech',
+                title: 'Wallet Net Balance Reconciliation Audit',
+                type: 'scenario',
+                difficulty: 'Hard',
+                question: 'During a financial audit, you need to reconcile a wallet\'s current balance against its historical transaction flow. Analyze the query below, which is designed to calculate the net total transaction flow for account "ACC-101". Point out the logical flaws (including operator precedence and flow direction) and provide a corrected SQL query.',
+                buggySql: "SELECT SUM(amount) AS net_flow FROM transactions WHERE sender_acc = 'ACC-101' OR receiver_acc = 'ACC-101' AND status = 'completed';"
+            },
+            {
+                id: 'q14',
+                schemaId: 'fintech',
+                title: 'Cross-Currency Wallet Audit',
+                type: 'mcq',
+                difficulty: 'Medium',
+                question: 'You are auditing fintech wallets to find users who have multiple accounts in different currencies. Which query correctly identifies user_ids associated with more than one distinct currency type?',
+                options: [
+                    { id: 'A', text: 'SELECT user_id FROM accounts GROUP BY user_id HAVING COUNT(DISTINCT currency) > 1;' },
+                    { id: 'B', text: 'SELECT user_id FROM accounts WHERE COUNT(currency) > 1 GROUP BY user_id;' },
+                    { id: 'C', text: 'SELECT DISTINCT user_id FROM accounts WHERE currency = "*";' },
+                    { id: 'D', text: 'SELECT user_id, COUNT(currency) FROM accounts GROUP BY user_id HAVING COUNT(currency) > 1;' }
+                ],
+                correct: 'A',
+                explanation: 'Using COUNT(DISTINCT currency) inside the HAVING clause correctly filters for users who hold accounts in multiple different currencies, filtering out users who might just have multiple accounts in the same currency.'
+            },
+            {
+                id: 'q15',
+                schemaId: 'fintech',
+                title: 'Unsettled High-Value Transaction Audit',
+                type: 'mcq',
+                difficulty: 'Medium',
+                question: 'For a daily liquidity risk audit, you need to find all transactions exceeding a 10,000 amount that do not have a "completed" status. Which query correctly filters this financial data?',
+                options: [
+                    { id: 'A', text: 'SELECT * FROM transactions WHERE amount > 10000 OR status = "pending";' },
+                    { id: 'B', text: 'SELECT * FROM transactions WHERE amount > 10000 AND status != "completed";' },
+                    { id: 'C', text: 'SELECT * FROM transactions WHERE amount > 10000 AND status = "pending";' },
+                    { id: 'D', text: 'SELECT * FROM transactions WHERE amount < 10000 AND status = "completed";' }
+                ],
+                correct: 'B',
+                explanation: 'The AND operator ensures both conditions are met. Using != "completed" ensures all unsettled statuses (like "pending", "failed", or "processing") are captured for the risk audit.'
+            },
+            {
+                id: 'q16',
+                schemaId: 'fintech',
+                title: 'Code Review: Overstated Outgoing Funds Audit',
+                type: 'scenario',
+                difficulty: 'Hard',
+                question: 'An auditor wrote the following query to calculate the total amount of money successfully sent by each user in order to check against anti-money laundering (AML) limits. Point out the critical logical flaw in the query that would cause an inaccurate audit, and provide the corrected SQL.',
+                buggySql: 'SELECT a.user_id, SUM(t.amount) AS total_sent_volume \nFROM accounts a \nJOIN transactions t ON a.account_id = t.sender_acc \nGROUP BY a.user_id;'
+            },
+            {
+                id: 'q17',
+                schemaId: 'fintech',
+                title: 'Code Review: Orphaned Transaction Audit',
+                type: 'scenario',
+                difficulty: 'Hard',
+                question: 'To ensure database integrity, you are auditing the transactions table to find "orphaned" records—transactions where the sender_acc does not actually exist in the accounts table. Review the query below, explain why it will never return any results, and provide the correct query.',
+                buggySql: 'SELECT t.transaction_id, t.sender_acc, t.amount \nFROM transactions t \nINNER JOIN accounts a ON t.sender_acc = a.account_id \nWHERE a.account_id IS NULL;'
+            },
+            {
+                id: 'q18',
+                schemaId: 'fintech',
+                title: 'Code Review: Double Counting Internal Transfers',
+                type: 'scenario',
+                difficulty: 'Hard',
+                question: 'A data analyst is trying to audit the total transaction volume strictly between two distinct users. They wrote the query below to find total volume moving between accounts. Identify the flaw that causes the query to double-count volume or fail to correctly associate users, and provide a refactored query.',
+                buggySql: 'SELECT sender.user_id AS sender_user, receiver.user_id AS receiver_user, SUM(t.amount) AS total_volume \nFROM transactions t \nJOIN accounts sender ON t.sender_acc = sender.account_id \nJOIN accounts receiver ON t.sender_acc = receiver.account_id \nWHERE t.status = "completed" \nGROUP BY sender.user_id, receiver.user_id;'
             }
         ];
 
@@ -300,6 +384,15 @@
                 timeLimitMinutes: 25,
                 questionIds: ['q2', 'q3', 'q6', 'q7', 'q9', 'q10'],
                 accessCode: 'DE-SQL-88',
+                createdAt: '2026-01-01T00:00:00.000Z'
+            },
+            {
+                id: 'exam-003',
+                title: 'Fintech Payments & Wallet Audit Screen',
+                passScore: 75,
+                timeLimitMinutes: 25,
+                questionIds: ['q12', 'q13', 'q14', 'q15', 'q16', 'q17', 'q18'],
+                accessCode: 'FINTECH-2026',
                 createdAt: '2026-01-01T00:00:00.000Z'
             }
         ];
@@ -330,11 +423,25 @@
             const [schemas] = useState(DEFAULT_SCHEMAS);
             const [questionBank, setQuestionBank] = useState(() => {
                 const saved = localStorage.getItem('yassir_questions');
-                return saved ? JSON.parse(saved) : DEFAULT_QUESTIONS;
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const mergedMap = new Map();
+                    DEFAULT_QUESTIONS.forEach(q => mergedMap.set(q.id, q));
+                    parsed.forEach(q => { if (q && q.id) mergedMap.set(q.id, q); });
+                    return Array.from(mergedMap.values());
+                }
+                return DEFAULT_QUESTIONS;
             });
             const [exams, setExams] = useState(() => {
                 const saved = localStorage.getItem('yassir_exams');
-                return saved ? JSON.parse(saved) : DEFAULT_EXAMS;
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const mergedMap = new Map();
+                    DEFAULT_EXAMS.forEach(e => mergedMap.set(e.id, e));
+                    parsed.forEach(e => { if (e && e.id) mergedMap.set(e.id, e); });
+                    return Array.from(mergedMap.values());
+                }
+                return DEFAULT_EXAMS;
             });
             const [submissions, setSubmissions] = useState(() => {
                 const saved = localStorage.getItem('yassir_submissions');
@@ -373,6 +480,13 @@
             const [resultExamFilter, setResultExamFilter] = useState('ALL');
             const [resultStatusFilter, setResultStatusFilter] = useState('ALL');
             const [resultDateFilter, setResultDateFilter] = useState('');
+
+            // Active Questions Memo
+            const activeExam = useMemo(() => exams.find(e => e.id === activeExamId) || exams[0], [exams, activeExamId]);
+            const activeQuestions = useMemo(() => {
+                if (!activeExam || !activeExam.questionIds) return [];
+                return activeExam.questionIds.map(qid => questionBank.find(q => q.id === qid)).filter(Boolean);
+            }, [activeExam, questionBank]);
 
             // Synchronize remote Google Sheets data
             const syncRemoteData = useCallback(async (showNotification = false) => {
@@ -466,13 +580,6 @@
             useEffect(() => {
                 localStorage.setItem('yassir_submissions', JSON.stringify(submissions));
             }, [submissions]);
-
-            // Active Questions Memo
-            const activeExam = useMemo(() => exams.find(e => e.id === activeExamId) || exams[0], [exams, activeExamId]);
-            const activeQuestions = useMemo(() => {
-                if (!activeExam || !activeExam.questionIds) return [];
-                return activeExam.questionIds.map(qid => questionBank.find(q => q.id === qid)).filter(Boolean);
-            }, [activeExam, questionBank]);
 
             // Timer & Anti-Cheat Listener
             useEffect(() => {
@@ -929,7 +1036,7 @@
                                     </div>
                                     <div>
                                         <label className="block text-slate-300 font-semibold mb-1">Exam Access Code</label>
-                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
+                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026 or FINTECH-2026" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
                                     </div>
                                     <button type="submit" className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold py-3 rounded-lg transition-all flex items-center justify-center space-x-2 shadow-lg shadow-sky-500/20">
                                         <span>Launch Assessment</span>
@@ -1329,6 +1436,14 @@
 
                                         <div className="grid grid-cols-3 gap-2">
                                             <div>
+                                                <label className="block text-slate-400 font-semibold mb-1">Schema Association</label>
+                                                <select value={questionForm.schemaId} onChange={e => setQuestionForm({ ...questionForm, schemaId: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white">
+                                                    {Object.values(schemas).map(s => (
+                                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
                                                 <label className="block text-slate-400 font-semibold mb-1">Type</label>
                                                 <select value={questionForm.type} onChange={e => setQuestionForm({ ...questionForm, type: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white">
                                                     <option value="mcq">Multiple Choice</option>
@@ -1343,6 +1458,9 @@
                                                     <option value="Hard">Hard</option>
                                                 </select>
                                             </div>
+                                        </div>
+
+                                        {questionForm.type === 'mcq' && (
                                             <div>
                                                 <label className="block text-slate-400 font-semibold mb-1">Correct Choice</label>
                                                 <select value={questionForm.correct} onChange={e => setQuestionForm({ ...questionForm, correct: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white">
@@ -1352,12 +1470,19 @@
                                                     <option value="D">Option D</option>
                                                 </select>
                                             </div>
-                                        </div>
+                                        )}
 
                                         <div>
                                             <label className="block text-slate-400 font-semibold mb-1">Question Prompt</label>
                                             <textarea rows={2} required value={questionForm.question} onChange={e => setQuestionForm({ ...questionForm, question: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white" />
                                         </div>
+
+                                        {questionForm.type === 'scenario' && (
+                                            <div>
+                                                <label className="block text-slate-400 font-semibold mb-1">Buggy SQL Prompt Code</label>
+                                                <textarea rows={3} required value={questionForm.buggySql} onChange={e => setQuestionForm({ ...questionForm, buggySql: e.target.value })} className="w-full bg-slate-950 border border-slate-700 font-mono text-sky-300 rounded p-2 text-white" />
+                                            </div>
+                                        )}
 
                                         {questionForm.type === 'mcq' && (
                                             <div className="space-y-2">
