@@ -24,7 +24,24 @@
             background-color: #020617;
             color: #f8fafc;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
         }
+
+        ::selection {
+            background: transparent;
+            color: inherit;
+        }
+
+        /* Blank out UI completely when user attempts to print or export PDF */
+        @media print {
+            body {
+                display: none !important;
+            }
+        }
+
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -38,6 +55,29 @@
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #475569;
+        }
+
+        /* Diagonal Anti-Leak Watermark Styling */
+        .watermark-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 20;
+            opacity: 0.07;
+            overflow: hidden;
+            display: flex;
+            flex-wrap: wrap;
+            align-content: space-around;
+            justify-content: space-around;
+            transform: rotate(-15deg) scale(1.2);
+        }
+        .watermark-text {
+            font-family: monospace;
+            font-size: 11px;
+            font-weight: 800;
+            color: #ffffff;
+            white-space: nowrap;
+            margin: 18px;
         }
     </style>
 </head>
@@ -53,6 +93,8 @@
         <input type="text" name="percentage" />
         <input type="text" name="timeTakenSeconds" />
         <input type="text" name="tabSwitches" />
+        <input type="text" name="focusLossCount" />
+        <input type="text" name="outOfWindowSeconds" />
         <input type="text" name="submittedAt" />
         <textarea name="textAnswers"></textarea>
     </form>
@@ -60,7 +102,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useCallback } = React;
+        const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
         // SHA-256 Answer Hashing Helper
         async function hashOption(qId, optId) {
@@ -78,7 +120,7 @@
             if (!sheetsUrl) return false;
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout for strict corporate firewalls
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
             try {
                 await fetch(sheetsUrl, {
@@ -98,6 +140,11 @@
         }
 
         const DEFAULT_SCHEMAS = {
+            none: {
+                id: 'none',
+                name: 'None / Custom Inline Schema (In Prompt)',
+                tables: []
+            },
             olist: {
                 id: 'olist',
                 name: 'Olist E-Commerce Marketplace',
@@ -133,6 +180,15 @@
                 tables: [
                     { name: 'accounts', cols: ['account_id (PK)', 'user_id (FK)', 'currency', 'balance'] },
                     { name: 'transactions', cols: ['transaction_id (PK)', 'sender_acc (FK)', 'receiver_acc (FK)', 'amount', 'status', 'created_at'] }
+                ]
+            },
+            digital_marketing: {
+                id: 'digital_marketing',
+                name: 'Digital Marketing & Attribution',
+                tables: [
+                    { name: 'campaigns', cols: ['campaign_id (PK)', 'campaign_name', 'channel', 'ad_spend', 'impressions', 'clicks'] },
+                    { name: 'conversions', cols: ['conversion_id (PK)', 'campaign_id (FK)', 'user_id', 'revenue', 'created_at'] },
+                    { name: 'user_attribution', cols: ['user_id (PK)', 'first_click_channel', 'last_click_channel', 'signup_date'] }
                 ]
             }
         };
@@ -304,7 +360,7 @@
                     { id: 'D', text: 'SELECT transaction_id FROM transactions INNER JOIN accounts ON transactions.sender_acc = accounts.account_id WHERE accounts.balance < 0;' }
                 ],
                 correct: 'A',
-                explanation: 'An equality check between the sender_acc and receiver_acc columns identifies circular or self-dealing transactions during an audit.'
+                explanation: 'An equality check between sender_acc and receiver_acc columns identifies circular transactions.'
             },
             {
                 id: 'q13',
@@ -312,7 +368,7 @@
                 title: 'Wallet Net Balance Reconciliation Audit',
                 type: 'scenario',
                 difficulty: 'Hard',
-                question: 'During a financial audit, you need to reconcile a wallet\'s current balance against its historical transaction flow. Analyze the query below, which is designed to calculate the net total transaction flow for account "ACC-101". Point out the logical flaws (including operator precedence and flow direction) and provide a corrected SQL query.',
+                question: 'During a financial audit, you need to reconcile a wallet\'s current balance against its historical transaction flow. Analyze the query below, point out the logical flaws (operator precedence and flow direction), and provide a corrected SQL query.',
                 buggySql: "SELECT SUM(amount) AS net_flow FROM transactions WHERE sender_acc = 'ACC-101' OR receiver_acc = 'ACC-101' AND status = 'completed';"
             },
             {
@@ -329,7 +385,7 @@
                     { id: 'D', text: 'SELECT user_id, COUNT(currency) FROM accounts GROUP BY user_id HAVING COUNT(currency) > 1;' }
                 ],
                 correct: 'A',
-                explanation: 'Using COUNT(DISTINCT currency) inside the HAVING clause correctly filters for users who hold accounts in multiple different currencies, filtering out users who might just have multiple accounts in the same currency.'
+                explanation: 'COUNT(DISTINCT currency) inside the HAVING clause filters for users holding accounts in multiple distinct currencies.'
             },
             {
                 id: 'q15',
@@ -337,7 +393,7 @@
                 title: 'Unsettled High-Value Transaction Audit',
                 type: 'mcq',
                 difficulty: 'Medium',
-                question: 'For a daily liquidity risk audit, you need to find all transactions exceeding a 10,000 amount that do not have a "completed" status. Which query correctly filters this financial data?',
+                question: 'For a daily liquidity risk audit, you need to find all transactions exceeding a 10,000 amount that do not have a "completed" status. Which query correctly filters this data?',
                 options: [
                     { id: 'A', text: 'SELECT * FROM transactions WHERE amount > 10000 OR status = "pending";' },
                     { id: 'B', text: 'SELECT * FROM transactions WHERE amount > 10000 AND status != "completed";' },
@@ -345,7 +401,7 @@
                     { id: 'D', text: 'SELECT * FROM transactions WHERE amount < 10000 AND status = "completed";' }
                 ],
                 correct: 'B',
-                explanation: 'The AND operator ensures both conditions are met. Using != "completed" ensures all unsettled statuses (like "pending", "failed", or "processing") are captured for the risk audit.'
+                explanation: 'Using AND with != "completed" ensures all unsettled statuses (pending, failed, processing) over 10,000 are flagged.'
             },
             {
                 id: 'q16',
@@ -353,7 +409,7 @@
                 title: 'Code Review: Overstated Outgoing Funds Audit',
                 type: 'scenario',
                 difficulty: 'Hard',
-                question: 'An auditor wrote the following query to calculate the total amount of money successfully sent by each user in order to check against anti-money laundering (AML) limits. Point out the critical logical flaw in the query that would cause an inaccurate audit, and provide the corrected SQL.',
+                question: 'An auditor wrote the query below to calculate total funds successfully sent by each user against anti-money laundering (AML) limits. Point out the critical logical flaw and provide corrected SQL.',
                 buggySql: 'SELECT a.user_id, SUM(t.amount) AS total_sent_volume \nFROM accounts a \nJOIN transactions t ON a.account_id = t.sender_acc \nGROUP BY a.user_id;'
             },
             {
@@ -362,7 +418,7 @@
                 title: 'Code Review: Orphaned Transaction Audit',
                 type: 'scenario',
                 difficulty: 'Hard',
-                question: 'To ensure database integrity, you are auditing the transactions table to find "orphaned" records—transactions where the sender_acc does not actually exist in the accounts table. Review the query below, explain why it will never return any results, and provide the correct query.',
+                question: 'Auditing transactions for orphaned records where sender_acc does not exist in accounts. Review the query below, explain why it returns no results, and provide the correct query.',
                 buggySql: 'SELECT t.transaction_id, t.sender_acc, t.amount \nFROM transactions t \nINNER JOIN accounts a ON t.sender_acc = a.account_id \nWHERE a.account_id IS NULL;'
             },
             {
@@ -371,8 +427,65 @@
                 title: 'Code Review: Double Counting Internal Transfers',
                 type: 'scenario',
                 difficulty: 'Hard',
-                question: 'A data analyst is trying to audit the total transaction volume strictly between two distinct users. They wrote the query below to find total volume moving between accounts. Identify the flaw that causes the query to double-count volume or fail to correctly associate users, and provide a refactored query.',
+                question: 'A data analyst wrote the query below to audit total volume moving between users. Identify the flaw causing double-counting or improper user association, and refactor.',
                 buggySql: 'SELECT sender.user_id AS sender_user, receiver.user_id AS receiver_user, SUM(t.amount) AS total_volume \nFROM transactions t \nJOIN accounts sender ON t.sender_acc = sender.account_id \nJOIN accounts receiver ON t.sender_acc = receiver.account_id \nWHERE t.status = "completed" \nGROUP BY sender.user_id, receiver.user_id;'
+            },
+            {
+                id: 'q19',
+                schemaId: 'digital_marketing',
+                title: 'CAC Calculation by Marketing Channel',
+                type: 'mcq',
+                difficulty: 'Medium',
+                question: 'Which SQL query correctly calculates the Customer Acquisition Cost (CAC = Total Spend / Total Converted Users) for each marketing channel?',
+                options: [
+                    { id: 'A', text: 'SELECT channel, SUM(ad_spend) / COUNT(DISTINCT user_id) AS cac FROM campaigns c JOIN conversions v ON c.campaign_id = v.campaign_id GROUP BY channel;' },
+                    { id: 'B', text: 'SELECT channel, AVG(ad_spend) FROM campaigns GROUP BY channel;' },
+                    { id: 'C', text: 'SELECT channel, SUM(ad_spend) * COUNT(user_id) FROM campaigns GROUP BY channel;' },
+                    { id: 'D', text: 'SELECT channel, COUNT(user_id) / SUM(ad_spend) FROM conversions GROUP BY channel;' }
+                ],
+                correct: 'A',
+                explanation: 'CAC divides aggregated ad spend by distinct converted users per channel.'
+            },
+            {
+                id: 'q20',
+                schemaId: 'digital_marketing',
+                title: 'Campaign Click-Through Rate (CTR)',
+                type: 'mcq',
+                difficulty: 'Easy',
+                question: 'Which SQL query calculates Click-Through Rate percentage (CTR %) as (clicks / impressions * 100) avoiding integer division errors?',
+                options: [
+                    { id: 'A', text: 'SELECT campaign_id, (clicks / impressions) FROM campaigns;' },
+                    { id: 'B', text: 'SELECT campaign_id, (clicks * 100.0 / NULLIF(impressions, 0)) AS ctr_pct FROM campaigns;' },
+                    { id: 'C', text: 'SELECT campaign_id, SUM(impressions) / SUM(clicks) FROM campaigns;' },
+                    { id: 'D', text: 'SELECT campaign_id, COUNT(clicks) FROM campaigns GROUP BY campaign_id;' }
+                ],
+                correct: 'B',
+                explanation: 'Multiplying by 100.0 casts numerator to decimal float, while NULLIF prevents divide-by-zero.'
+            },
+            {
+                id: 'q21',
+                schemaId: 'digital_marketing',
+                title: 'Code Review: Ad Attribution Fan-Out Revenue Overstatement',
+                type: 'scenario',
+                difficulty: 'Hard',
+                question: 'A marketing analyst wrote the query below to measure total revenue attributed to campaigns. Identify why joining user conversions directly to multiple ad click records inflates revenue, and provide the refactored SQL.',
+                buggySql: 'SELECT c.campaign_name, SUM(v.revenue) AS attributed_revenue \nFROM campaigns c \nJOIN ad_clicks cl ON c.campaign_id = cl.campaign_id \nJOIN conversions v ON cl.user_id = v.user_id \nGROUP BY c.campaign_name;'
+            },
+            {
+                id: 'q22',
+                schemaId: 'digital_marketing',
+                title: 'Return on Ad Spend (ROAS)',
+                type: 'mcq',
+                difficulty: 'Medium',
+                question: 'How do you compute Return on Ad Spend (ROAS = Attributed Revenue / Ad Spend) for each campaign?',
+                options: [
+                    { id: 'A', text: 'SELECT c.campaign_name, SUM(v.revenue) / c.ad_spend AS roas FROM campaigns c JOIN conversions v ON c.campaign_id = v.campaign_id GROUP BY c.campaign_name, c.ad_spend;' },
+                    { id: 'B', text: 'SELECT campaign_name, ad_spend / revenue FROM campaigns;' },
+                    { id: 'C', text: 'SELECT campaign_name, SUM(revenue) - SUM(ad_spend) FROM conversions;' },
+                    { id: 'D', text: 'SELECT campaign_name, AVG(ad_spend) FROM campaigns GROUP BY campaign_name;' }
+                ],
+                correct: 'A',
+                explanation: 'ROAS divides total attributed revenue generated by total campaign ad spend.'
             }
         ];
 
@@ -402,6 +515,15 @@
                 timeLimitMinutes: 25,
                 questionIds: ['q12', 'q13', 'q14', 'q15', 'q16', 'q17', 'q18'],
                 accessCode: 'FINTECH-2026',
+                createdAt: '2026-01-01T00:00:00.000Z'
+            },
+            {
+                id: 'exam-mkt',
+                title: 'Marketing & Growth Data Analyst Screen',
+                passScore: 70,
+                timeLimitMinutes: 20,
+                questionIds: ['q19', 'q20', 'q21', 'q22'],
+                accessCode: 'YASSIR-MKT',
                 createdAt: '2026-01-01T00:00:00.000Z'
             }
         ];
@@ -469,14 +591,20 @@
             const [tabSwitchCount, setTabSwitchCount] = useState(0);
             const [isSubmitting, setIsSubmitting] = useState(false);
 
+            // ANTI-CHEAT ADVANCED TRACKING STATE
+            const [focusLossCount, setFocusLossCount] = useState(0);
+            const [outOfWindowSeconds, setOutOfWindowSeconds] = useState(0);
+            const [isWindowFocused, setIsWindowFocused] = useState(true);
+            const focusStartTimeRef = useRef(null);
+
             // Modal & Form State
             const [selectedSubmission, setSelectedSubmission] = useState(null);
             const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
             const [editingQuestionId, setEditingQuestionId] = useState(null);
             const [questionForm, setQuestionForm] = useState({
-                title: '', schemaId: 'olist', type: 'mcq', difficulty: 'Medium', question: '',
+                title: '', schemaId: 'none', type: 'mcq', difficulty: 'Medium', question: '',
                 options: [{ id: 'A', text: '' }, { id: 'B', text: '' }, { id: 'C', text: '' }, { id: 'D', text: '' }],
-                correct: 'A', explanation: '', buggySql: ''
+                correct: 'A', explanation: '', buggySql: '', customSchemaText: ''
             });
 
             const [isExamModalOpen, setIsExamModalOpen] = useState(false);
@@ -498,17 +626,16 @@
                 return activeExam.questionIds.map(qid => questionBank.find(q => q.id === qid)).filter(Boolean);
             }, [activeExam, questionBank]);
 
-            // Synchronize remote Google Sheets data with 5s timeout signal
+            // Synchronize remote Google Sheets data
             const syncRemoteData = useCallback(async (showNotification = false) => {
                 const sheetsUrl = window.YASSIR_CONFIG?.GOOGLE_SHEETS_URL;
                 if (!sheetsUrl) return;
                 
                 setIsSyncing(true);
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second max fetch limit
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
 
                 try {
-                    // Cache-busting URL with live timestamp parameter
                     const cacheBustingUrl = `${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
                     const res = await fetch(cacheBustingUrl, { signal: controller.signal });
                     clearTimeout(timeoutId);
@@ -517,7 +644,6 @@
                         const remoteData = await res.json();
                         setIsFirewallBlocked(false);
                         
-                        // Merge Questions
                         if (remoteData.questions && Array.isArray(remoteData.questions)) {
                             const mergedMap = new Map();
                             DEFAULT_QUESTIONS.forEach(q => mergedMap.set(q.id, q));
@@ -525,7 +651,6 @@
                             setQuestionBank(Array.from(mergedMap.values()));
                         }
 
-                        // Merge Exams
                         if (remoteData.exams && Array.isArray(remoteData.exams)) {
                             const mergedMap = new Map();
                             DEFAULT_EXAMS.forEach(e => mergedMap.set(e.id, e));
@@ -533,7 +658,6 @@
                             setExams(Array.from(mergedMap.values()));
                         }
 
-                        // Merge Submissions
                         if (remoteData.submissions && Array.isArray(remoteData.submissions)) {
                             const mergedMap = new Map();
                             remoteData.submissions.forEach(s => { if (s && s.id) mergedMap.set(s.id, s); });
@@ -548,31 +672,23 @@
                     clearTimeout(timeoutId);
                     setIsFirewallBlocked(true);
                     console.warn("Google Sheets sync skipped due to firewall or network timeout:", err);
-                } finally {
+                } font-mono {
                     setIsSyncing(false);
                 }
             }, []);
 
-            // Smart Adaptive Polling Engine
+            // Polling Engine for multi-device sync
             useEffect(() => {
-                // Initial sync on mount
                 syncRemoteData(false);
 
-                // Polling interval function
                 const pollInterval = setInterval(() => {
-                    // 1. Skip polling if tab is hidden / minimized
                     if (document.hidden) return;
-
-                    // 2. Skip polling if candidate is actively taking an exam to save bandwidth
                     if (route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= (activeQuestions?.length || 0)) {
                         return;
                     }
-
-                    // Perform background sync
                     syncRemoteData(false);
-                }, 20000); // 20-second efficient polling interval
+                }, 20000);
 
-                // Trigger immediate sync when returning to tab
                 const handleTabFocus = () => {
                     if (!document.hidden) {
                         syncRemoteData(false);
@@ -586,7 +702,7 @@
                 };
             }, [syncRemoteData, route, candidateSlide, activeQuestions?.length]);
 
-            // LocalStorage Persistence
+            // LocalStorage Persistence Sync
             useEffect(() => {
                 localStorage.setItem('yassir_questions', JSON.stringify(questionBank));
             }, [questionBank]);
@@ -599,7 +715,7 @@
                 localStorage.setItem('yassir_submissions', JSON.stringify(submissions));
             }, [submissions]);
 
-            // Timer & Anti-Cheat Listener
+            // Timer Listener
             useEffect(() => {
                 let timer;
                 if (startTime && route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= activeQuestions.length) {
@@ -611,14 +727,65 @@
             }, [startTime, route, candidateSlide, activeQuestions.length]);
 
             useEffect(() => {
-                const handleVisibilityChange = () => {
-                    if (document.hidden && route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= activeQuestions.length) {
-                        setTabSwitchCount(prev => prev + 1);
-                        showToast("Warning: Tab switch detected during assessment!", "error");
+                const isExamActive = route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= activeQuestions.length;
+                if (!isExamActive) return;
+
+                const handleBlur = () => {
+                    setIsWindowFocused(false);
+                    setFocusLossCount(prev => prev + 1);
+                    focusStartTimeRef.current = Date.now();
+                    showToast("Alert: Window lost focus! (Second Screen or Window Switch Detected)", "error");
+                };
+
+                const handleFocus = () => {
+                    setIsWindowFocused(true);
+                    if (focusStartTimeRef.current) {
+                        const secondsUnfocused = Math.round((Date.now() - focusStartTimeRef.current) / 1000);
+                        setOutOfWindowSeconds(prev => prev + Math.max(1, secondsUnfocused));
+                        focusStartTimeRef.current = null;
                     }
                 };
+
+                const handleVisibilityChange = () => {
+                    if (document.hidden) {
+                        setTabSwitchCount(prev => prev + 1);
+                    }
+                };
+
+                const handleKeyDown = (e) => {
+                    // Block PrintScreen, F12, Ctrl+Shift+I, Ctrl+C, Ctrl+V, Ctrl+P, Win+Shift+S triggers
+                    if (
+                        e.key === 'PrintScreen' ||
+                        e.key === 'F12' ||
+                        (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'C' || e.key === 'c')) ||
+                        (e.metaKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === '4' || e.key === '3' || e.key === 's' || e.key === 'S')) ||
+                        ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.key === 'v' || e.key === 'V' || e.key === 'p' || e.key === 'P' || e.key === 'a' || e.key === 'A'))
+                    ) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        showToast("Action restricted during assessment session!", "error");
+                        return false;
+                    }
+                };
+
+                const handleContextMenu = (e) => {
+                    e.preventDefault();
+                    showToast("Right-click menu disabled during assessment.", "error");
+                };
+
+                window.addEventListener('blur', handleBlur);
+                window.addEventListener('focus', handleFocus);
                 document.addEventListener('visibilitychange', handleVisibilityChange);
-                return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+                document.addEventListener('keydown', handleKeyDown, true);
+                document.addEventListener('contextmenu', handleContextMenu);
+
+                return () => {
+                    window.removeEventListener('blur', handleBlur);
+                    window.removeEventListener('focus', handleFocus);
+                    document.removeEventListener('visibilitychange', handleVisibilityChange);
+                    document.removeEventListener('keydown', handleKeyDown, true);
+                    document.removeEventListener('contextmenu', handleContextMenu);
+                };
             }, [route, candidateSlide, activeQuestions.length]);
 
             const handleAdminLogin = (e) => {
@@ -645,6 +812,8 @@
                 setStartTime(Date.now());
                 setElapsedSeconds(0);
                 setTabSwitchCount(0);
+                setFocusLossCount(0);
+                setOutOfWindowSeconds(0);
                 setCandidateSlide(1);
                 setRoute('candidate_exam');
             };
@@ -692,11 +861,12 @@
                         percentage: mcqTotal > 0 ? Math.round((score / mcqTotal) * 100) : 0,
                         timeTakenSeconds: elapsedSeconds,
                         tabSwitches: tabSwitchCount,
+                        focusLossCount: focusLossCount,
+                        outOfWindowSeconds: outOfWindowSeconds,
                         submittedAt: formattedDate
                     };
 
-                    // Channel 1: Guaranteed Native Netlify Form POST Request (Same Domain = Firewall Proof!)
-                    let netlifySuccess = false;
+                    // Dual Channel Submission Strategy
                     if (window.YASSIR_CONFIG?.ENABLE_NETLIFY_FORMS !== false) {
                         try {
                             const formData = new URLSearchParams();
@@ -709,6 +879,8 @@
                             formData.append("percentage", `${submissionData.percentage}%`);
                             formData.append("timeTakenSeconds", submissionData.timeTakenSeconds);
                             formData.append("tabSwitches", submissionData.tabSwitches);
+                            formData.append("focusLossCount", submissionData.focusLossCount);
+                            formData.append("outOfWindowSeconds", submissionData.outOfWindowSeconds);
                             formData.append("submittedAt", submissionData.submittedAt);
                             formData.append("textAnswers", JSON.stringify(submissionData.textAnswers));
 
@@ -717,13 +889,11 @@
                                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                                 body: formData.toString()
                             });
-                            netlifySuccess = true;
                         } catch (err) {
                             console.warn("Netlify form post error:", err);
                         }
                     }
 
-                    // Channel 2: Direct Save to Google Sheets (Fallback or Parallel)
                     await sendToGoogleSheets("add_submission", submissionData);
 
                     setSubmissions(prev => [submissionData, ...prev]);
@@ -742,12 +912,12 @@
             const handleOpenQuestionModal = (question = null) => {
                 if (question) {
                     setEditingQuestionId(question.id);
-                    setQuestionForm({ ...question });
+                    setQuestionForm({ ...question, customSchemaText: question.customSchemaText || '' });
                 } else {
                     setEditingQuestionId(null);
                     setQuestionForm({
                         title: '',
-                        schemaId: Object.keys(schemas)[0] || 'olist',
+                        schemaId: 'none',
                         type: 'mcq',
                         difficulty: 'Medium',
                         question: '',
@@ -759,7 +929,8 @@
                         ],
                         correct: 'A',
                         explanation: '',
-                        buggySql: ''
+                        buggySql: '',
+                        customSchemaText: ''
                     });
                 }
                 setIsQuestionModalOpen(true);
@@ -882,9 +1053,9 @@
             };
 
             const exportResultsCSV = () => {
-                let csv = "Candidate Name,Candidate Email,Exam Title,Exam Code,MCQ Score,MCQ Total,Percentage,Time Spent (s),Tab Switches,Submitted At\n";
+                let csv = "Candidate Name,Candidate Email,Exam Title,Exam Code,MCQ Score,MCQ Total,Percentage,Time Spent (s),Tab Switches,Focus Losses,Unfocused Time (s),Submitted At\n";
                 submissions.forEach(s => {
-                    csv += `"${s.candidateName}","${s.candidateEmail}","${s.examTitle}","${s.examCode}",${s.mcqScore},${s.mcqTotal},${s.percentage}%,${s.timeTakenSeconds},${s.tabSwitches},"${s.submittedAt}"\n`;
+                    csv += `"${s.candidateName}","${s.candidateEmail}","${s.examTitle}","${s.examCode}",${s.mcqScore},${s.mcqTotal},${s.percentage}%,${s.timeTakenSeconds},${s.tabSwitches || 0},${s.focusLossCount || 0},${s.outOfWindowSeconds || 0},"${s.submittedAt}"\n`;
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
@@ -895,36 +1066,12 @@
                 URL.revokeObjectURL(url);
             };
 
-            const handleImportSubmissions = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    try {
-                        const parsed = JSON.parse(evt.target.result);
-                        const items = Array.isArray(parsed) ? parsed : [parsed];
-                        setSubmissions(prev => {
-                            const merged = [...items];
-                            prev.forEach(p => {
-                                if (!merged.find(m => m.id === p.id)) merged.push(p);
-                            });
-                            return merged;
-                        });
-                        showToast(`Imported ${items.length} submission records!`);
-                    } catch (err) {
-                        showToast("Invalid JSON file.", "error");
-                    }
-                };
-                reader.readAsText(file);
-            };
-
             const formatTime = (secs) => {
                 const m = Math.floor(secs / 60);
                 const s = secs % 60;
                 return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             };
 
-            // Filtered Submissions Computation
             const filteredSubmissions = useMemo(() => {
                 return submissions.filter(sub => {
                     const matchesSearch = !resultSearchTerm || 
@@ -985,12 +1132,12 @@
                                 <span className="text-white text-sm font-bold">Data Analytics Technical Assessment</span>
                                 <div className="flex items-center space-x-2">
                                     <span className="text-[10px] text-slate-400 font-mono">
-                                        Google Sheets Database
+                                        Anti-Cheat Shield Active
                                     </span>
                                     {isFirewallBlocked ? (
                                         <span className="text-[10px] bg-amber-950/80 text-amber-400 border border-amber-800 px-2 py-0.5 rounded font-mono font-bold flex items-center space-x-1">
                                             <i className="fa-solid fa-shield-cat"></i>
-                                            <span>Firewall Fallback Active</span>
+                                            <span>Firewall Fallback</span>
                                         </span>
                                     ) : (
                                         <button 
@@ -1008,10 +1155,10 @@
 
                         {route === 'candidate_exam' && candidateSlide >= 1 && candidateSlide <= totalQs && (
                             <div className="flex items-center space-x-3">
-                                {tabSwitchCount > 0 && (
+                                {focusLossCount > 0 && (
                                     <div className="flex items-center space-x-1.5 bg-red-950/80 px-3 py-1.5 rounded-full border border-red-800 text-red-400 font-mono text-xs font-semibold animate-pulse">
-                                        <i className="fa-solid fa-triangle-exclamation"></i>
-                                        <span>Tab Switches: {tabSwitchCount}</span>
+                                        <i className="fa-solid fa-eye-slash"></i>
+                                        <span>Focus Lost: {focusLossCount}x ({outOfWindowSeconds}s)</span>
                                     </div>
                                 )}
                                 <div className="flex items-center space-x-2 bg-slate-800/90 px-3 py-1.5 rounded-full border border-slate-700 text-sky-400 font-mono text-xs font-semibold">
@@ -1037,7 +1184,7 @@
                         )}
                     </header>
 
-                    {/* MAIN VIEW SYSTEM */}
+                    {}
                     <main className="flex-1 p-6 flex items-center justify-center relative">
 
                         {/* VIEW 1: CANDIDATE ENTRY FORM */}
@@ -1046,10 +1193,18 @@
                                 <div className="space-y-1">
                                     <div className="text-sky-400 text-xs font-mono font-bold flex items-center space-x-1.5">
                                         <i className="fa-solid fa-shield-halved"></i>
-                                        <span>CANDIDATE EXAM PORTAL</span>
+                                        <span>PROCTORED ASSESSMENT PORTAL</span>
                                     </div>
                                     <h1 className="text-2xl font-bold text-white">Start Candidate Session</h1>
-                                    <p className="text-xs text-slate-400">Enter your name, email, and access code provided by your interviewer.</p>
+                                    <p className="text-xs text-slate-400">Enter your full name, email, and exam access code provided by your interviewer.</p>
+                                </div>
+
+                                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1 text-[11px] text-slate-400">
+                                    <div className="font-bold text-amber-400 flex items-center gap-1.5">
+                                        <i className="fa-solid fa-triangle-exclamation"></i>
+                                        <span>Assessment Security Notice</span>
+                                    </div>
+                                    <p>Focus loss (second screens/tabs), copy-pasting, and screenshot attempts are actively monitored and logged.</p>
                                 </div>
 
                                 <form onSubmit={handleStartExam} className="space-y-4 text-xs">
@@ -1063,21 +1218,50 @@
                                     </div>
                                     <div>
                                         <label className="block text-slate-300 font-semibold mb-1">Exam Access Code</label>
-                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026, FINTECH-2026 or DE-SQL-88" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
+                                        <input type="text" required value={candidateInfo.examCode} onChange={e => setCandidateInfo({ ...candidateInfo, examCode: e.target.value })} placeholder="e.g. YASSIR-2026, FINTECH-2026, or YASSIR-MKT" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sky-400 font-mono font-bold uppercase focus:outline-none focus:border-sky-500" />
                                     </div>
                                     <button type="submit" className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold py-3 rounded-lg transition-all flex items-center justify-center space-x-2 shadow-lg shadow-sky-500/20">
-                                        <span>Launch Assessment</span>
+                                        <span>Launch Proctored Assessment</span>
                                         <i className="fa-solid fa-arrow-right"></i>
                                     </button>
                                 </form>
                             </div>
                         )}
 
-                        {/* VIEW 2: CANDIDATE ACTIVE EXAM */}
+                        {}
                         {route === 'candidate_exam' && (
-                            <div className="w-full max-w-6xl flex flex-col space-y-4 select-none">
+                            <div className="w-full max-w-6xl flex flex-col space-y-4 select-none relative">
                                 {candidateSlide >= 1 && candidateSlide <= totalQs && (
-                                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between min-h-[500px]">
+                                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between min-h-[500px] relative overflow-hidden">
+                                        
+                                        {/* DYNAMIC WATERMARK OVERLAY (Prevents smartphone photos & screenshots) */}
+                                        <div className="watermark-overlay">
+                                            {Array.from({ length: 24 }).map((_, i) => (
+                                                <div key={i} className="watermark-text">
+                                                    {candidateInfo.name || 'Candidate'} • {candidateInfo.email || 'Proctored'} • YASSIR EVALUATION
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* SECOND SCREEN FOCUS LOSS BLUR SHIELD */}
+                                        {!isWindowFocused && (
+                                            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-2xl z-40 flex flex-col items-center justify-center space-y-4 text-center p-6">
+                                                <div className="w-16 h-16 bg-red-950/90 border border-red-800 text-red-400 rounded-full flex items-center justify-center text-2xl animate-pulse">
+                                                    <i className="fa-solid fa-eye-slash"></i>
+                                                </div>
+                                                <h3 className="text-xl font-bold text-white">Assessment Paused - Window Out of Focus</h3>
+                                                <p className="text-xs text-slate-400 max-w-md leading-relaxed">
+                                                    Your assessment window lost focus (second screen, external app, or tab switch detected). All focus loss events and total duration are recorded.
+                                                </p>
+                                                <button 
+                                                    onClick={() => setIsWindowFocused(true)} 
+                                                    className="px-6 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold rounded-xl shadow-lg"
+                                                >
+                                                    Click Here to Resume Assessment
+                                                </button>
+                                            </div>
+                                        )}
+
                                         {(() => {
                                             const currentQ = activeQuestions[candidateSlide - 1];
                                             if (!currentQ) return null;
@@ -1086,7 +1270,7 @@
                                             const textAns = candidateTextAnswers[currentQ.id] || { flawsText: '', sqlText: '' };
 
                                             return (
-                                                <div className="grid grid-cols-12 gap-6 flex-1">
+                                                <div className="grid grid-cols-12 gap-6 flex-1 relative z-10">
                                                     {/* LEFT PANEL */}
                                                     <div className="col-span-5 border-r border-slate-800 pr-5 flex flex-col justify-between space-y-4">
                                                         <div className="space-y-3">
@@ -1109,14 +1293,25 @@
                                                         <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2 overflow-y-auto max-h-56 text-xs font-mono">
                                                             <span className="text-amber-400 font-bold block border-b border-slate-800 pb-1 flex items-center gap-1.5">
                                                                 <i className="fa-solid fa-database"></i>
-                                                                <span>Schema: {schema.name}</span>
+                                                                <span>Schema: {schema && schema.id !== 'none' ? schema.name : 'Inline / Custom Schema'}</span>
                                                             </span>
-                                                            {schema.tables?.map((t, idx) => (
-                                                                <div key={idx} className="space-y-0.5">
-                                                                    <span className="text-sky-400 font-bold block text-[11px]">// {t.name}</span>
-                                                                    <div className="pl-2 text-slate-300 text-[10px]">{t.cols.join(' • ')}</div>
+                                                            {currentQ.customSchemaText ? (
+                                                                <div className="p-2 bg-slate-900 rounded border border-slate-800 text-sky-300 font-mono text-[11px] whitespace-pre-wrap">
+                                                                    {currentQ.customSchemaText}
                                                                 </div>
-                                                            ))}
+                                                            ) : schema && schema.tables && schema.tables.length > 0 ? (
+                                                                schema.tables.map((t, idx) => (
+                                                                    <div key={idx} className="space-y-0.5">
+                                                                        <span className="text-sky-400 font-bold block text-[11px]">// {t.name}</span>
+                                                                        <div className="pl-2 text-slate-300 text-[10px]">{t.cols.join(' • ')}</div>
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <div className="text-slate-500 italic text-[11px] py-2">
+                                                                    <i className="fa-solid fa-circle-info mr-1.5 text-sky-400"></i>
+                                                                    Database table structure is defined directly inside the question prompt text.
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
 
@@ -1165,7 +1360,7 @@
                                         </div>
                                         <h2 className="text-2xl font-bold text-white">Assessment Complete!</h2>
                                         <p className="text-slate-400 text-xs leading-relaxed">
-                                            Thank you, <span className="text-sky-400 font-bold">{candidateInfo.name}</span>. Your responses have been submitted to the recruitment team. You may now close this window.
+                                            Thank you, <span className="text-sky-400 font-bold">{candidateInfo.name}</span>. Your responses and security logs have been submitted to the recruitment team. You may now close this window.
                                         </p>
                                     </div>
                                 )}
@@ -1217,7 +1412,7 @@
                             </div>
                         )}
 
-                        {/* VIEW 4: ADMIN - QUESTIONS MANAGER */}
+                        {}
                         {route === 'page_questions' && adminAuth.isAuthenticated && (
                             <div className="w-full max-w-6xl space-y-4">
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
@@ -1252,7 +1447,6 @@
                             </div>
                         )}
 
-                        {/* VIEW 5: ADMIN - EXAMS MANAGER */}
                         {route === 'page_exams' && adminAuth.isAuthenticated && (
                             <div className="w-full max-w-6xl space-y-4">
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
@@ -1290,26 +1484,19 @@
                             </div>
                         )}
 
-                        {/* VIEW 6: ADMIN - RESULTS MATRIX */}
                         {route === 'page_results' && adminAuth.isAuthenticated && (
                             <div className="w-full max-w-6xl space-y-4">
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
                                     <div>
                                         <h2 className="text-lg font-bold text-white">Candidate Evaluation Matrix</h2>
-                                        <p className="text-xs text-slate-400">Total Submissions Recorded: {filteredSubmissions.length}</p>
+                                        <p className="text-xs text-slate-400 font-mono">Total Submissions: {filteredSubmissions.length}</p>
                                     </div>
                                     <div className="flex space-x-2">
-                                        <label className="px-3 py-1.5 bg-sky-950 border border-sky-800 text-sky-400 hover:bg-sky-900 text-xs font-bold rounded-lg cursor-pointer flex items-center space-x-1">
-                                            <i className="fa-solid fa-file-import mr-1"></i>
-                                            <span>Import Result (.json)</span>
-                                            <input type="file" accept=".json" onChange={handleImportSubmissions} className="hidden" />
-                                        </label>
                                         <button onClick={exportResultsCSV} className="px-3 py-1.5 bg-emerald-950 border border-emerald-800 text-emerald-400 hover:bg-emerald-900 text-xs font-bold rounded-lg"><i className="fa-solid fa-file-csv mr-1"></i> Export CSV</button>
                                         <button onClick={() => exportJSONFile(submissions, 'submissions.json')} className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 text-xs font-bold rounded-lg"><i className="fa-solid fa-file-code mr-1"></i> Export JSON</button>
                                     </div>
                                 </div>
 
-                                {/* FILTERS BAR */}
                                 <div className="grid grid-cols-4 gap-3 bg-slate-900 p-3 rounded-xl border border-slate-800 text-xs">
                                     <div>
                                         <label className="block text-slate-400 mb-1">Filter by Exam Paper</label>
@@ -1338,17 +1525,16 @@
                                     </div>
                                 </div>
 
-                                {/* RESULTS TABLE */}
                                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden text-xs">
                                     <table className="w-full text-left">
                                         <thead className="bg-slate-950 text-slate-400 font-semibold uppercase border-b border-slate-800">
                                             <tr>
                                                 <th className="p-3">Candidate</th>
                                                 <th className="p-3">Exam Paper</th>
-                                                <th className="p-3">Examination Date</th>
+                                                <th className="p-3">Date</th>
                                                 <th className="p-3">MCQ Score</th>
+                                                <th className="p-3">Proctor Log</th>
                                                 <th className="p-3">Status</th>
-                                                <th className="p-3">Time</th>
                                                 <th className="p-3">Action</th>
                                             </tr>
                                         </thead>
@@ -1362,6 +1548,7 @@
                                                     const matchedExam = exams.find(e => e.id === sub.examId);
                                                     const passThreshold = matchedExam ? (matchedExam.passScore || 70) : 70;
                                                     const isPassed = sub.percentage >= passThreshold;
+                                                    const hasSecurityAlerts = (sub.focusLossCount || 0) > 0 || (sub.tabSwitches || 0) > 0;
 
                                                     return (
                                                         <tr key={sub.id} className="hover:bg-slate-950/50">
@@ -1372,12 +1559,24 @@
                                                             <td className="p-3 font-medium text-slate-200">{sub.examTitle}</td>
                                                             <td className="p-3 font-mono text-slate-400">{sub.submittedAt}</td>
                                                             <td className="p-3 font-mono font-bold text-emerald-400">{sub.mcqScore} / {sub.mcqTotal} ({sub.percentage}%)</td>
+                                                            <td className="p-3 font-mono text-[11px]">
+                                                                {hasSecurityAlerts ? (
+                                                                    <span className="text-red-400 font-bold flex items-center gap-1">
+                                                                        <i className="fa-solid fa-triangle-exclamation"></i>
+                                                                        <span>{sub.focusLossCount || sub.tabSwitches || 0} Focus Loss ({sub.outOfWindowSeconds || 0}s)</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                                                        <i className="fa-solid fa-shield-check"></i>
+                                                                        <span>Clean Session</span>
+                                                                    </span>
+                                                                )}
+                                                            </td>
                                                             <td className="p-3">
                                                                 <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${isPassed ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}`}>
                                                                     {isPassed ? 'PASSED' : 'FAILED'} ({passThreshold}% Req)
                                                                 </span>
                                                             </td>
-                                                            <td className="p-3 font-mono text-slate-400">{formatTime(sub.timeTakenSeconds || 0)}</td>
                                                             <td className="p-3">
                                                                 <button onClick={() => setSelectedSubmission(sub)} className="px-2.5 py-1 bg-sky-950 text-sky-400 border border-sky-800 hover:bg-sky-900 rounded font-bold text-[11px]">Inspect Code</button>
                                                             </td>
@@ -1403,7 +1602,7 @@
                                         <button onClick={() => setSelectedSubmission(null)} className="p-1 text-slate-400 hover:text-white"><i className="fa-solid fa-xmark text-lg"></i></button>
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-3 text-xs font-mono">
+                                    <div className="grid grid-cols-4 gap-2 text-xs font-mono">
                                         <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
                                             <span className="text-slate-500 block">MCQ Score</span>
                                             <span className="text-sm font-bold text-emerald-400">{selectedSubmission.mcqScore} / {selectedSubmission.mcqTotal} ({selectedSubmission.percentage}%)</span>
@@ -1413,8 +1612,12 @@
                                             <span className="text-sm font-bold text-sky-400">{formatTime(selectedSubmission.timeTakenSeconds || 0)}</span>
                                         </div>
                                         <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
-                                            <span className="text-slate-500 block">Tab Switches</span>
-                                            <span className="text-sm font-bold text-red-400">{selectedSubmission.tabSwitches || 0}</span>
+                                            <span className="text-slate-500 block">Focus Loss Events</span>
+                                            <span className="text-sm font-bold text-red-400">{selectedSubmission.focusLossCount || selectedSubmission.tabSwitches || 0} times</span>
+                                        </div>
+                                        <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+                                            <span className="text-slate-500 block">Time Off Window</span>
+                                            <span className="text-sm font-bold text-amber-400">{selectedSubmission.outOfWindowSeconds || 0} seconds</span>
                                         </div>
                                     </div>
 
@@ -1502,6 +1705,12 @@
                                         <div>
                                             <label className="block text-slate-400 font-semibold mb-1">Question Prompt</label>
                                             <textarea rows={2} required value={questionForm.question} onChange={e => setQuestionForm({ ...questionForm, question: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white" />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-slate-400 font-semibold mb-1">Custom Table Definitions (Optional)</label>
+                                            <textarea rows={2} value={questionForm.customSchemaText || ''} onChange={e => setQuestionForm({ ...questionForm, customSchemaText: e.target.value })} placeholder="e.g. users (user_id, name, city)&#10;orders (order_id, user_id, amount)" className="w-full bg-slate-950 border border-slate-700 font-mono text-sky-300 rounded p-2 text-xs" />
+                                            <span className="text-[10px] text-slate-500">Leave blank if table structure is explained directly in question prompt.</span>
                                         </div>
 
                                         {questionForm.type === 'scenario' && (
