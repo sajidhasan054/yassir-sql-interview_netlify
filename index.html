@@ -672,7 +672,7 @@
                     clearTimeout(timeoutId);
                     setIsFirewallBlocked(true);
                     console.warn("Google Sheets sync skipped due to firewall or network timeout:", err);
-                } font-mono {
+                } finally {
                     setIsSyncing(false);
                 }
             }, []);
